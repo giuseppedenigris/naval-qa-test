@@ -1,0 +1,21 @@
+[project]
+name = "naval-qa-test"
+version = "0.1.0"
+description = "Synthetic Q&A testset generation with ragas, for evaluating a multimodal RAG pipeline"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "ragas==0.4.3",
+    # ragas 0.4.3 unconditionally imports langchain_community.chat_models.vertexai,
+    # a module removed in langchain-community's post-sunset 0.4.x releases - pin
+    # below that to keep the import working.
+    "langchain-community<0.4",
+    "google-genai",
+    # required by ragas' OverlapScoreBuilder (used by the default transforms
+    # pipeline) but not declared as a ragas dependency.
+    "rapidfuzz",
+    "pandas",
+    "python-dotenv",
+    "tqdm",
+    "chromadb>=1.5.9",
+    "sentence-transformers>=6.1.0",
+]
