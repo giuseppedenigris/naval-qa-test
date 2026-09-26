@@ -207,6 +207,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     # ragas walks the nodes in KG order and stops after n scenarios: shuffle so the sample isn't just the first docs
     random.Random(args.seed).shuffle(kg.nodes)
+    kg.relationships = [r for r in kg.relationships if r.properties.get("summary_similarity", 0) >= args.min_similarity]
 
     # Google recommends the default sampling (temperature 1.0) for Gemini 3; ragas' 0.01 can cause looping
     llm = build_llm(args.llm_model, temperature=1.0, top_p=0.95)
@@ -303,6 +304,7 @@ def main() -> None:
     p_generate.add_argument("--llm-model", required=True, dest="llm_model", help="'<model>@<url>'; url='google_api' for Gemini, else OpenAI-compatible endpoint (needs /v1)")
     p_generate.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model", help=EMBEDDING_HELP)
     p_generate.add_argument("--seed", type=int, default=None, help="Seed for the KG shuffle, to get comparable samples across runs (default: random)")
+    p_generate.add_argument("--min-similarity", type=float, default=0.8, help="Keep only summary_similarity edges >= this value")
     p_generate.add_argument("--verbose", action="store_true")
     p_generate.set_defaults(func=cmd_generate)
 
