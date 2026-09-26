@@ -198,6 +198,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     if not KG_CACHE_PATH.exists():
         raise SystemExit(f"No cached knowledge graph at {KG_CACHE_PATH} - run 'python main.py build-kg' first")
 
+    from ragas.run_config import RunConfig
     from ragas.testset import TestsetGenerator
     from ragas.testset.synthesizers.multi_hop import MultiHopAbstractQuerySynthesizer
     from ragas.testset.synthesizers.single_hop.specific import SingleHopSpecificQuerySynthesizer
@@ -222,7 +223,8 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     # multi-hop specific is left out: its scenarios almost always end up with a single context
     query_distribution = [(SingleHopSpecificQuerySynthesizer(llm=llm, llm_context=LLM_CONTEXT), 0.75), (MultiHopAbstractQuerySynthesizer(llm=llm, llm_context=LLM_CONTEXT), 0.25)]
-    testset = generator.generate(testset_size=args.target, query_distribution=query_distribution, with_debugging_logs=args.verbose)
+    # gemini-3.1-pro allows 25 requests/min: keep the parallelism low
+    testset = generator.generate(testset_size=args.target, query_distribution=query_distribution, run_config=RunConfig(max_workers=2), with_debugging_logs=args.verbose)
 
     out_dir = DATA_DIR / "testsets"
     out_dir.mkdir(parents=True, exist_ok=True)
