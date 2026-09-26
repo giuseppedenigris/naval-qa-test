@@ -165,7 +165,7 @@ def cmd_build_kg(args: argparse.Namespace) -> None:
 
     skipped = [d for d in requested_docs if d not in new_docs]
     if skipped:
-        print(f"Already in the cache, skipping: {skipped} (use --force to redo)")
+        print(f"{len(skipped)} documents already in the cache, skipping (use --force to redo)")
     if not new_docs:
         print("Nothing new to add.")
         return
@@ -201,7 +201,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     from ragas.testset import TestsetGenerator
 
     kg = load_knowledge_graph(KG_CACHE_PATH)
-    print(f"Using cached KG: {len(kg.nodes)} nodes from {sorted(get_ingested_doc_names(kg))}")
+    print(f"Using cached KG: {len(kg.nodes)} nodes from {len(get_ingested_doc_names(kg))} docs")
 
     llm = build_llm(args.llm_model)
     embeddings = build_embeddings(args.embedding_model)
