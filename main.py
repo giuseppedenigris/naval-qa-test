@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import sys
 import warnings
 from datetime import datetime
@@ -61,25 +62,24 @@ CANDIDATES_DIR = Path(__file__).parent / "candidates"
 # is threaded into that prompt as explicit steering, so use it to push toward
 # situational questions instead of rewriting the prompt/examples by hand.
 LLM_CONTEXT = (
-    "Generate practical, situational questions that a real person would naturally ask "
-    "while working with this equipment - for example while diagnosing a malfunction or "
-    "error, checking whether a measured or installed value meets requirements before "
-    "signing off on an installation, or figuring out the exact steps to carry out a "
-    "task. Phrase the question the way that person would actually ask it in that "
-    "situation, using the topic naturally within it. "
-    "Avoid generic definition-lookup questions such as 'What is the purpose of X?' or "
-    "'What is X?' - do not ask about a term in the abstract."
+    "Write practical, situational questions that a real person would ask while working "
+    "with this equipment: diagnosing a fault, checking a value before signing off an "
+    "installation, or carrying out a task. Begin directly with the question, in the "
+    "person's own words, short and focused on one thing. Pick a concrete detail found "
+    "only in the text, not a definition. If a style asks for mistakes, keep them light "
+    "and realistic. Write answers as direct statements of the facts."
 )
 
 
-def build_llm(llm_spec: str):
+def build_llm(llm_spec: str, **model_args):
     """Build a ragas LLM from a "<model>@<url>" spec.
 
     url "google_api" resolves to Gemini's OpenAI-compatible endpoint (using
     provider="openai" rather than "google" sidesteps a known upstream bug
     where instructor's native google-genai integration sends invalid safety
     settings). Any other url is used as-is, e.g. a local Ollama server -
-    those don't check the API key, so a placeholder is used.
+    those don't check the API key, so a placeholder is used. model_args
+    (e.g. temperature, top_p) override ragas' defaults of 0.01 and 0.1.
     """
     from openai import AsyncOpenAI
     from ragas.llms import llm_factory
@@ -101,7 +101,7 @@ def build_llm(llm_spec: str):
     client = AsyncOpenAI(api_key=api_key, base_url=url)
     # ragas defaults max_tokens=1024, which Gemini 2.5's thinking tokens eat
     # into before any structured output is produced - raise the budget.
-    return llm_factory(model, client=client, max_tokens=8192)
+    return llm_factory(model, client=client, max_tokens=8192, **model_args)
 
 
 def _check_reachable(url: str) -> None:
@@ -199,11 +199,17 @@ def cmd_generate(args: argparse.Namespace) -> None:
         raise SystemExit(f"No cached knowledge graph at {KG_CACHE_PATH} - run 'python main.py build-kg' first")
 
     from ragas.testset import TestsetGenerator
+    from ragas.testset.synthesizers.multi_hop import MultiHopAbstractQuerySynthesizer
+    from ragas.testset.synthesizers.single_hop.specific import SingleHopSpecificQuerySynthesizer
 
     kg = load_knowledge_graph(KG_CACHE_PATH)
     print(f"Using cached KG: {len(kg.nodes)} nodes from {len(get_ingested_doc_names(kg))} docs")
 
-    llm = build_llm(args.llm_model)
+    # ragas walks the nodes in KG order and stops after n scenarios: shuffle so the sample isn't just the first docs
+    random.Random(args.seed).shuffle(kg.nodes)
+
+    # Google recommends the default sampling (temperature 1.0) for Gemini 3; ragas' 0.01 can cause looping
+    llm = build_llm(args.llm_model, temperature=1.0, top_p=0.95)
     embeddings = build_embeddings(args.embedding_model)
     generator = TestsetGenerator(
         llm=llm,
@@ -213,7 +219,9 @@ def cmd_generate(args: argparse.Namespace) -> None:
         llm_context=LLM_CONTEXT,
     )
 
-    testset = generator.generate(testset_size=args.target, with_debugging_logs=args.verbose)
+    # multi-hop specific is left out: its scenarios almost always end up with a single context
+    query_distribution = [(SingleHopSpecificQuerySynthesizer(llm=llm, llm_context=LLM_CONTEXT), 0.75), (MultiHopAbstractQuerySynthesizer(llm=llm, llm_context=LLM_CONTEXT), 0.25)]
+    testset = generator.generate(testset_size=args.target, query_distribution=query_distribution, with_debugging_logs=args.verbose)
 
     out_dir = DATA_DIR / "testsets"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -294,6 +302,7 @@ def main() -> None:
     p_generate.add_argument("--target", type=int, default=40, help="Number of Q&A samples to generate")
     p_generate.add_argument("--llm-model", required=True, dest="llm_model", help="'<model>@<url>'; url='google_api' for Gemini, else OpenAI-compatible endpoint (needs /v1)")
     p_generate.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model", help=EMBEDDING_HELP)
+    p_generate.add_argument("--seed", type=int, default=None, help="Seed for the KG shuffle, to get comparable samples across runs (default: random)")
     p_generate.add_argument("--verbose", action="store_true")
     p_generate.set_defaults(func=cmd_generate)
 
